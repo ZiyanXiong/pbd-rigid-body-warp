@@ -1,0 +1,8 @@
+Build/
+Results/
+test/
+
+*.mat
+*.asv
+*.fig
+*.mex*
