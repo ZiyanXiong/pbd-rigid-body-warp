@@ -1,14 +1,16 @@
 SIM_NUM =  1
-CONTACT_MAX =  8
+CONTACT_MAX =  150
+VIA_POINT_MAX =  3
 EPS_BIG = 1E-3
 EPS_SMALL= 1E-6
-import warp as wp
-from DataTypes import *
 
 class DEVICE:
     GPU =  "cuda"
     CPU =  "cpu"
     
+import warp as wp
+from DataTypes import *
+
 @wp.func
 def getContactFrame(n:Vec3):
     """
@@ -35,9 +37,3 @@ def gamma(xi: Vec3):
               xi[1], -xi[0], 0.0, 0.0, 0.0, 1.0)
     return G
 
-@wp.func
-def gammaDivM(xi: Vec3, I:Vec6):
-    G = Mat36(0.0, xi[2] / I[2], -xi[1] / I[1], 1.0 / I[3], 0.0, 0.0,
-              -xi[2] / I[2], 0.0, xi[0] / I[0], 0.0, 1.0 / I[4], 0.0,
-              xi[1] / I[1], -xi[0] / I[0], 0.0, 0.0, 0.0, 1.0 / I[5])
-    return G

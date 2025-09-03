@@ -1,6 +1,7 @@
 Build/
-Results/
-test/
+Results/*.blend1
+tests/
+__pycache__/
 
 *.mat
 *.asv

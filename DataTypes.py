@@ -8,6 +8,8 @@ class Vec2(wpt.vector(length=2, dtype=FP_DATA_TYPE)):
     pass
 class Vec3(wpt.vector(length=3, dtype=FP_DATA_TYPE)):
     pass
+class Vec3i(wpt.vector(length=3, dtype=INT_DATA_TYPE)):
+    pass
 class Vec4(wpt.vector(length=4, dtype=FP_DATA_TYPE)):
     pass
 class Vec6(wpt.vector(length=6, dtype=FP_DATA_TYPE)):

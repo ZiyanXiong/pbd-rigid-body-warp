@@ -3,9 +3,10 @@ import os
 import numpy as np
 from DataTypes import *
 from Body import BodyRigid, BodyFixed
-from Joint import JointHingeWorld
+from Joint import JointHinge, JointHingeWorld
 from BodiesOnDevice import BodiesOnDevice
-from Constraints import ConstraintsGroundContact, ConstraintsBodyContact, ConstraintsWorldFix, ConstraintsWorldRotate
+from Constraints import ConstraintsContact, ConstraintsJoint,  ConstraintMuscle
+from Muscle import MuscleSpring
 from utils import SIM_NUM
 
 class Model:
@@ -13,8 +14,7 @@ class Model:
         self.bodies = []
         self.bodies_fixed = []
         self.joints = []
-        self.joints_world=[]
-        self.actuators = []
+        self.muscles = []
         self.constraints = []
         self.collision_pairs = []
         self.bodies_on_device = None
@@ -51,11 +51,17 @@ class Model:
     
     def addJoint(self, parent, child, xl, axis):
         if(parent is None):
-            joint = JointHingeWorld(child, self.bodies[child].transform_host, xl, axis, len(self.joints_world))
+            joint = JointHingeWorld(child, self.bodies[child].transform_host, xl, axis, len(self.joints))
             self.joints.append(joint)
-            return self.joints.index
         else:
-            return -1
+            joint = JointHinge(parent, self.bodies[parent].transform_host, child, self.bodies[child].transform_host, xl, axis, len(self.joints))
+            self.joints.append(joint)
+        return joint.index
+
+    def addMuscle(self, bodies, points, stiffness, rest_length):
+        muscle = MuscleSpring(bodies, points, stiffness, rest_length, len(self.muscles))
+        self.muscles.append(muscle)
+        return muscle.index
 
     def setBodyInitialState(self, index, transform, phi, variantion=False):
         if index < 0 or index >= len(self.bodies):
@@ -71,7 +77,10 @@ class Model:
                 init_transforms[i] = transform
                 init_phis[i] = phi
         self.bodies[index].setInitialState(init_transforms, init_phis, transform, variantion)
-
+        
+    def setJointTargets(self, index, theta_target, omega_target, kp, kd):
+        self.joints[index].setTarget(theta_target, omega_target, kp, kd)
+    
     def init(self):
         #for robot in self.robots:
             #robot.init() 
@@ -79,10 +88,9 @@ class Model:
         for body in self.bodies:
             body.init()
         self.bodies_on_device = BodiesOnDevice(self.bodies)
-        self.constraints.append(ConstraintsWorldFix(self.joints, self.bodies_on_device))
-        # self.constraints.append(ConstraintsWorldRotate(self.joints, self.bodies_on_device))
-        self.constraints.append(ConstraintsGroundContact(self.bodies_fixed, self.bodies, self.bodies_on_device))
-        self.constraints.append(ConstraintsBodyContact(self.bodies, self.bodies_on_device, self.collision_pairs))
+        self.constraints.append(ConstraintsJoint(self.joints, self.bodies_on_device))
+        self.constraints.append(ConstraintMuscle(self.muscles, self.bodies_on_device))
+        self.constraints.append(ConstraintsContact(self.bodies_fixed, self.bodies, self.bodies_on_device, self.collision_pairs))
 
     def step(self, num_steps: int):
         for step in range(num_steps):
@@ -93,40 +101,37 @@ class Model:
         self.t = self.t + num_steps
         
     def stepUncons(self):
-        for actuator in self.actuators:
-            actuator.applyForceTorque(self.t) 
+        # for actuator in self.actuators:
+        #     actuator.applyForceTorque(self.t) 
         self.bodies_on_device.stepUncons(self.h, self.gravity)
     
     def initConstraints(self):
-        for actuator in self.actuators:
-            actuator.init()
-        
         for constraint in self.constraints:
-            constraint.fillConstraints()
-            constraint.init()
+            constraint.update(self.t)
+            constraint.init(self.h)
         # self.ground_contact_constraints.fillConstraints(self.fixed, self.bodies)
         # self.ground_contact_constraints.init()
         
     def solveTGS(self):
         for i in range(self.sub_steps):
-            for actuator in self.actuators:
-                actuator.solvePos()
-
             for constraint in self.constraints:
                 constraint.solve(self.h / self.sub_steps)
             self.bodies_on_device.updateSubStepStates(self.h / self.sub_steps)
             wp.synchronize()
-        print("phi: ",self.bodies_on_device.phi.numpy())   
+        print("phi: ",self.bodies_on_device.phi.numpy())
         self.bodies_on_device.intergrateStates(self.h)
         wp.synchronize()
         
             
     def solveVelocity(self):
+        for constraint in self.constraints:
+            constraint.d.zero_()
         for i in range(self.vel_sub_steps):
             for constraint in self.constraints:
                 constraint.solveVelocity(self.h / self.vel_sub_steps)
-            
-        # print("phi: ",self.bodies_on_device.phi.numpy())   
+        for constraint in self.constraints:
+            constraint.lambdas.zero_() 
+        print("phi: ",self.bodies_on_device.phi.numpy())
         for body in self.bodies:
             body.getResults(self.bodies_on_device.transform[body.index, :],
                             self.bodies_on_device.phi[body.index, :])
@@ -142,6 +147,10 @@ class Model:
         # Open the file for writing
         with open(output_dir + output_file, "w") as f:
             f.write(f"#Body number: {body_num}\n")
+            f.write(f"#Body Shape: ")
+            for body in self.bodies:
+                f.write(body.shape.name + " " + " ".join(str(x) for x in body.shape.sides) + " ")
+            f.write("\n")
             f.write(f"#Simulation number: {SIM_NUM}\n")
             f.write(f"#Step number: {frames}\n")
             # Run simulation for a few seconds to see the stacking

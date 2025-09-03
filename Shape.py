@@ -4,6 +4,7 @@ from DataTypes import *
 class Box():
     def __init__(self, sides):          
         self.sides = sides
+        self.name = "Box"
         
     def computeInertia(self, density):
             I = Vec6()
@@ -18,6 +19,7 @@ class Plane():
     def __init__(self, normal, translation):
         self.normal = normal
         self.translation = translation
+        self.name = "Plane"
 
     def computeInertia(self, density):
         # For a plane, inertia is not defined in the same way as for a rigid body.

@@ -1,7 +1,8 @@
 import warp as wp
 from DataTypes import *
-from utils import SIM_NUM, CONTACT_MAX, DEVICE, EPS_SMALL
+from utils import SIM_NUM, CONTACT_MAX, DEVICE, EPS_BIG
 from odeBoxBox import dBoxBoxDistance, generateContactPoints
+from Constraints import WORLD_CONTACT_CONSTRAINT, BODY_CONTACT_CONSTRAINT
 
 @wp.kernel
 def planeBoxCollision(
@@ -14,6 +15,7 @@ def planeBoxCollision(
     offset:FP_DATA_TYPE,
     # outputs
     contact_num: wp.array(dtype=INT_DATA_TYPE),
+    contact_type: wp.array(dtype=INT_DATA_TYPE, ndim=2),
     body_ind: wp.array(dtype=INT_DATA_TYPE, ndim=2),
     depth: wp.array(dtype=FP_DATA_TYPE, ndim=2),
     normal: wp.array(dtype=Vec3, ndim=2),
@@ -44,10 +46,11 @@ def planeBoxCollision(
                     con_ind = wp.atomic_add(contact_num, tid, 1)
                     if con_ind < CONTACT_MAX:
                         body_ind[con_ind][tid] = body1
-                        depth[con_ind][tid] = -distance
-                        normal[con_ind][tid] = wp.transform_vector(q2[tid], normal_plane)
+                        depth[con_ind][tid] = distance
+                        normal[con_ind][tid] = -wp.transform_vector(q2[tid], normal_plane)
                         contact_points[con_ind][tid] = corner
                         contact_mu[con_ind][tid] = body1_mu
+                        contact_type[con_ind][tid] = WORLD_CONTACT_CONSTRAINT
                     else:
                         print("Number of rigid contacts exceeded limit. Increase utils.CONTACT_MAX.")
                     
@@ -63,6 +66,7 @@ def boxBoxCollision(
     contact_mu_const: FP_DATA_TYPE,
     # outputs
     contact_num: wp.array(dtype=INT_DATA_TYPE),
+    contact_type: wp.array(dtype=INT_DATA_TYPE, ndim=2),
     body_id1: wp.array(dtype=INT_DATA_TYPE, ndim=2),
     body_id2: wp.array(dtype=INT_DATA_TYPE, ndim=2),
     depth: wp.array(dtype=FP_DATA_TYPE,  ndim=2),
@@ -85,8 +89,8 @@ def boxBoxCollision(
 
     if(s > offset):
         return
-    elif s > EPS_SMALL:
-        displacement = s 
+    elif s > -offset:
+        displacement = offset 
     p1 = p1 + displacement * normal_kernel
 
     contact_num_kernel = generateContactPoints(p1, R1, side1, p2, R2, side2, code, normal_kernel, 8, contact_num[i], i, contact_points1, depth)
@@ -99,20 +103,28 @@ def boxBoxCollision(
             body_id1[con_ind][i] = body2
             body_id2[con_ind][i] = body1
             normal[con_ind][i] = normal_kernel
+            # wp.printf("code: %d \n",code)
+            # wp.printf("distance: %f\n", depth[con_ind][i])
+            # wp.printf("displacement: %f\n", displacement)
+            # wp.printf("normal: %f %f %f \n", normal_kernel[0], normal_kernel[1], normal_kernel[2])
+            # xl1 = contact_points1[con_ind][i]
+            # wp.printf("xl1: %f %f %f \n", xl1[0], xl1[1], xl1[2])
+            
             if(code <=3):
-                contact_points1[con_ind][i] = contact_points1[con_ind][i] - (depth[con_ind][i] + displacement) * normal_kernel
+                contact_points1[con_ind][i] = contact_points1[con_ind][i]  + (depth[con_ind][i] - displacement) * normal_kernel
             elif(code <=6):
                 contact_points1[con_ind][i] = contact_points1[con_ind][i] - displacement * normal_kernel
             else:
-                contact_points1[con_ind][i] = contact_points1[con_ind][i] - (0.5 * depth[con_ind][i] + displacement) * normal_kernel
-            depth[con_ind][i] = depth[con_ind][i] - displacement
+                contact_points1[con_ind][i] = contact_points1[con_ind][i] + (0.5 * depth[con_ind][i] - displacement) * normal_kernel
+            depth[con_ind][i] = -(depth[con_ind][i] - displacement)
             contact_points2[con_ind][i] = wp.transform_point(wp.transform_inverse(q1[i]), contact_points1[con_ind][i])
-            contact_points1[con_ind][i] = wp.transform_point(wp.transform_inverse(q2[i]), contact_points1[con_ind][i] - displacement * normal_kernel)
+            contact_points1[con_ind][i] = wp.transform_point(wp.transform_inverse(q2[i]), contact_points1[con_ind][i] + depth[con_ind][i] * normal_kernel)
             contact_mu[con_ind][i] = contact_mu_const
+            contact_type[con_ind][i] = BODY_CONTACT_CONSTRAINT
             contact_num[i] += 1
 
 
-def collisionDetectionGroundCuboid(body1, q1, side1, body1_mu, q2, normal_plane, contact_num, body_ind, depth, normal, contact_points, contact_mu):
+def collisionDetectionGroundCuboid(body1, q1, side1, body1_mu, q2, normal_plane, contact_num, contact_type, body_ind, depth, normal, contact_points, contact_mu):
 
     offset = 2e-1
     wp.launch(
@@ -129,17 +141,17 @@ def collisionDetectionGroundCuboid(body1, q1, side1, body1_mu, q2, normal_plane,
         ],
         outputs=[
             contact_num,
+            contact_type,
             body_ind,
             depth,
             normal,
             contact_points,
             contact_mu
         ],
-        device=DEVICE.GPU,
         record_tape=False,
     )
     
-def collisionDetectionCuboidCuboid(body1, q1, side1, body2, q2, side2, contact_mu_const, contact_num, body_id1, body_id2, depth, normal, contact_points1, contact_points2, contact_mu):
+def collisionDetectionCuboidCuboid(body1, q1, side1, body2, q2, side2, contact_mu_const, contact_num, contact_type, body_id1, body_id2, depth, normal, contact_points1, contact_points2, contact_mu):
 
     offset = 2e-1
     wp.launch(
@@ -157,6 +169,7 @@ def collisionDetectionCuboidCuboid(body1, q1, side1, body2, q2, side2, contact_m
         ],
         outputs=[
             contact_num,
+            contact_type,
             body_id1,
             body_id2,
             depth,
@@ -165,6 +178,5 @@ def collisionDetectionCuboidCuboid(body1, q1, side1, body2, q2, side2, contact_m
             contact_points2,
             contact_mu
         ],
-        device=DEVICE.GPU,
         record_tape=False,
     )
