@@ -49,13 +49,14 @@ class Model:
         self.bodies_fixed.append(fixed)
         return fixed.index
     
-    def addJoint(self, parent, child, xl, axis):
+    def addJoint(self, parent, child, xl, axis, limits=Vec2(wp.PI, -wp.PI)):
         if(parent is None):
             joint = JointHingeWorld(child, self.bodies[child].transform_host, xl, axis, len(self.joints))
             self.joints.append(joint)
         else:
             joint = JointHinge(parent, self.bodies[parent].transform_host, child, self.bodies[child].transform_host, xl, axis, len(self.joints))
             self.joints.append(joint)
+        joint.setLimits(limits)
         return joint.index
 
     def addMuscle(self, bodies, points, stiffness, rest_length):
@@ -118,7 +119,7 @@ class Model:
                 constraint.solve(self.h / self.sub_steps)
             self.bodies_on_device.updateSubStepStates(self.h / self.sub_steps)
             wp.synchronize()
-        print("phi: ",self.bodies_on_device.phi.numpy())
+        # print("phi: ",self.bodies_on_device.phi.numpy())
         self.bodies_on_device.intergrateStates(self.h)
         wp.synchronize()
         

@@ -18,7 +18,8 @@ class Joint():
         self.kd = 0
         self.theta_target = None
         self.omega_target = None
-    
+        self.limits = None
+
     def setTarget(self, theta_target, omega_target, kp, kd):
         self.has_target = True
         self.kp = kp
@@ -26,9 +27,13 @@ class Joint():
         self.theta_target = theta_target
         self.omega_target = omega_target
     
+    def setLimits(self, limits):
+        self.limits = limits
+    
 class JointHinge(Joint):
     def __init__(self, parent, parent_transform, child, child_transform, xl1, axis, index):
         super().__init__(parent, child, xl1, index)
+        self.limits = wp.vec2(wp.PI, -wp.PI)
         # https://math.stackexchange.com/a/3582461
         g = wp.sign(axis[2])
         h = axis[2] + g
@@ -42,6 +47,7 @@ class JointHinge(Joint):
 class JointHingeWorld(Joint):
     def __init__(self, child, child_transform, xw, axis, index):
         super().__init__(None, child, xw, index)
+        self.limits = wp.vec2(wp.PI, -wp.PI)
         # https://math.stackexchange.com/a/3582461
         g = wp.sign(axis[2])
         h = axis[2] + g

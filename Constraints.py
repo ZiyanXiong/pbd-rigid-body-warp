@@ -13,6 +13,7 @@ import numpy as np
 from DataTypes import *
 from CollisionDetection import collisionDetectionGroundCuboid, collisionDetectionCuboidCuboid
 from utils import SIM_NUM, CONTACT_MAX, EPS_SMALL, VIA_POINT_MAX, getContactFrame, gamma
+ROTATE_OFFSET = 1E-2
 
 @wp.kernel
 def initConstraintsContact(
@@ -237,6 +238,8 @@ def initConstraintsJoint(
     oemga_target: wp.array(dtype=FP_DATA_TYPE),
     kp: wp.array(dtype=FP_DATA_TYPE),
     kd: wp.array(dtype=FP_DATA_TYPE),
+    limits: wp.array(dtype=Vec2),
+    limit_signs: wp.array(dtype=FP_DATA_TYPE),
     h: FP_DATA_TYPE,
     # outputs
     d: wp.array(dtype=Vec3, ndim=2),
@@ -344,8 +347,25 @@ def initConstraintsJoint(
             # r_axis, dtheta = wp.quat_to_axis_angle(wp.quat_inverse(q[b_i][j].q))
             # # wp.printf("dq: %f %f %f %f\n", q[b_i][j].q[0], q[b_i][j].q[1], q[b_i][j].q[2], q[b_i][j].q[3])
             # d[i][j] = cf * r_axis * dtheta
+            
             d_ij = cf * wp.cross(wp.transform_vector(q[b_i][j], axis2[i]), axis1[i])
-            if(con_type[i] == WORLD_ROTATE_TARGET_CONSTRAINT):
+            n1 = b1[i]
+            n2 = wp.quat_rotate(q[b_i][j].q, b2[i])
+            d_target = wp.asin(wp.dot(cf[0], wp.cross(n2, n1)))
+            if(wp.dot(n1, n2) < 0.0):
+                d_target = wp.PI - d_target
+            d_target = wp.atan2(wp.sin(d_target), wp.cos(d_target))  # map to [-pi, pi]
+            if(con_type[i] == WORLD_ROTATE_CONSTRAINT):
+                if(d_target > limits[i][0] - ROTATE_OFFSET):
+                    d_ij[0] = d_target - limits[i][0]
+                    limit_signs[i] = -1.0
+                elif(d_target < limits[i][1] + ROTATE_OFFSET):
+                    d_ij[0] = d_target - limits[i][1]
+                    limit_signs[i] = 1.0
+                else:
+                    d_ij[0] = 0.0
+                    limit_signs[i] = 0.0
+            elif(con_type[i] == WORLD_ROTATE_TARGET_CONSTRAINT):
                 # dtheta_align = wp.cross(wp.transform_vector(q[b_i][j], axis2[i]), axis1[i])
                 # dtheta_align_norm = wp.norm_l2(dtheta_align)
                 # if dtheta_align_norm > EPS_SMALL:
@@ -353,7 +373,6 @@ def initConstraintsJoint(
                 # else:
                 #     dq_align = wp.quat_identity()
                 # d_target = wp.dot(cf[0], wp.cross(wp.quat_rotate(dq_align * q[b_i][j].q, b2[i]), b1[i]))
-                d_target = wp.asin(wp.dot(cf[0], wp.cross(wp.quat_rotate(q[b_i][j].q, b2[i]), b1[i])))
                 d_omega = -wp.dot(J_kernel[0], phi[b_i][j])
                 a = h/(h*(h*kp[i]+kd[i])*wp.dot(J_kernel[0], -J_div_m_kernel[0]) + 1.0)
                 d_ij[0] = a * h * (kp[i]*((d_target - theta_target[i]) + d_omega * h) + kd[i]*(d_omega - oemga_target[i])) - d_omega * h
@@ -398,7 +417,23 @@ def initConstraintsJoint(
             J_div_m2[i][j] = J_div_m_kernel
             
             d_ij = cf * wp.cross(wp.transform_vector(q[b2_i][j], axis2[i]), wp.transform_vector(q[b1_i][j], axis1[i]))
-            if(con_type[i] == BODY_ROTATE_TARGET_CONSTRAINT):
+            n1= wp.transform_vector(q[b1_i][j], b1[i])
+            n2 = wp.transform_vector(q[b2_i][j], b2[i])
+            d_target = wp.asin(wp.dot(cf[0], wp.cross(n2, n1)))
+            if(wp.dot(n1, n2) < 0.0):
+                d_target = wp.PI - d_target
+            d_target = wp.atan2(wp.sin(d_target), wp.cos(d_target))  # map to [-pi, pi]
+            if(con_type[i] == BODY_ROTATE_CONSTRAINT):
+                if(d_target > limits[i][0] - ROTATE_OFFSET):
+                    d_ij[0] = d_target - limits[i][0]
+                    limit_signs[i] = -1.0
+                elif(d_target < limits[i][1] + ROTATE_OFFSET):
+                    d_ij[0] = d_target - limits[i][1]
+                    limit_signs[i] = 1.0
+                else:
+                    d_ij[0] = 0.0
+                    limit_signs[i] = 0.0
+            elif(con_type[i] == BODY_ROTATE_TARGET_CONSTRAINT):
                 d_J_div_m = J_div_m1[i][j] - J_div_m2[i][j]
                 # dtheta_align = wp.cross(wp.transform_vector(q[b2_i][j], axis2[i]), wp.transform_vector(q[b1_i][j], axis1[i]))
                 # dtheta_align_norm = wp.norm_l2(dtheta_align)
@@ -411,7 +446,7 @@ def initConstraintsJoint(
                 d_omega = wp.dot(J_kernel[0], phi[b1_i][j] - phi[b2_i][j])          
                 a = h/(h*(h*kp[i]+kd[i])*wp.dot(J_kernel[0], d_J_div_m[0]) + 1.0)
                 d_ij[0] = a * h * (kp[i]*((d_target - theta_target[i]) + d_omega * h) + kd[i]*(d_omega - oemga_target[i])) - d_omega * h
-                d[i][j] = Vec3(d_ij[0], wp.asin(d_ij[1]), wp.asin(d_ij[2]))
+            d[i][j] = Vec3(d_ij[0], wp.asin(d_ij[1]), wp.asin(d_ij[2]))
         
 @wp.kernel
 def solveConstraintsJoint(
@@ -426,6 +461,7 @@ def solveConstraintsJoint(
     J_div_m2: wp.array(dtype=Mat36, ndim=2),
     w2: wp.array(dtype=Vec3, ndim=2),
     d: wp.array(dtype=Vec3, ndim=2),
+    limit_signs: wp.array(dtype=FP_DATA_TYPE),
     h: FP_DATA_TYPE,
     #outputs
     lambdas: wp.array(dtype=Vec3, ndim=2),
@@ -445,8 +481,6 @@ def solveConstraintsJoint(
             J_ij = J2[i][j]
             J_div_m_ij = J_div_m2[i][j]
             for k in range(3):
-                if(con_type[i] == WORLD_ROTATE_CONSTRAINT and k==0):
-                    continue
                 c = -wp.dot(J_ij[k], (phi_ij +bias)) + d_ij[k] / h
                 # wp.printf("c: %f = %f + %f\n", c, wp.dot(J_ij[k], (phi_ij +bias)), d_ij[k] / h)
                 # wp.printf("d_ij: %f \n", d_ij[k])
@@ -455,6 +489,8 @@ def solveConstraintsJoint(
                 # wp.printf("Jijk: %f %f %f %f %f %f\n", J_ij[k][0], J_ij[k][1], J_ij[k][2], J_ij[k][3], J_ij[k][4], J_ij[k][5])
                 dlambda = -c / w_ij[k]
                 # wp.printf("dlambda: %f \n", dlambda)
+                if(con_type[i] == WORLD_ROTATE_CONSTRAINT and k==0 and (lambdas_ij[0] + dlambda) * limit_signs[i] <= 0.0):
+                    dlambda = -lambdas_ij[0]
                 lambdas_ij[k] += dlambda
                 phi_ij -= J_div_m_ij[k] * dlambda
             lambdas[i][j] = lambdas_ij
@@ -474,8 +510,6 @@ def solveConstraintsJoint(
             J2_ij = J2[i][j]
             J_div_m2_ij = J_div_m2[i][j]
             for k in range(3):
-                if(con_type[i] == BODY_ROTATE_CONSTRAINT and k==0):
-                    continue
                 c = wp.dot(J1_ij[k], (phi1_ij +bias1)) - wp.dot(J2_ij[k], (phi2_ij +bias2)) + d_ij[k] / h
                 # wp.printf("c: %f = %f - %f\n", c, wp.dot(J1_ij[k], (phi1_ij +bias1)), wp.dot(J2_ij[k], (phi2_ij +bias2)))
                 # wp.printf("w_ij: %f \n", w_ij[k])
@@ -486,6 +520,8 @@ def solveConstraintsJoint(
                 # wp.printf("J1ijk: %f %f %f %f %f %f\n", J1_ij[k][0], J1_ij[k][1], J1_ij[k][2], J1_ij[k][3], J1_ij[k][4], J1_ij[k][5])
                 # wp.printf("J2ijk: %f %f %f %f %f %f\n", J2_ij[k][0], J2_ij[k][1], J2_ij[k][2], J2_ij[k][3], J2_ij[k][4], J2_ij[k][5])
                 dlambda = -c / w_ij[k]
+                if(con_type[i] == BODY_ROTATE_CONSTRAINT and k==0 and (lambdas_ij[0] + dlambda) * limit_signs[i] <= 0.0):
+                    dlambda = -lambdas_ij[0]
                 # wp.printf("dlambda: %f \n", dlambda)
                 lambdas_ij[k] += dlambda
                 phi1_ij += J_div_m1_ij[k] * dlambda
@@ -531,9 +567,11 @@ def initConstraintsMuscle(
             normals[k] = normals[k] + normal
             normals[k+1] = normals[k+1] - normal
             b[i][j] = b[i][j] + normal_len
-            
+        b[i][j] = b[i][j] / h
+         
         w[i][j] = 0.0
         for k in range(body_num[i]):
+            b_i = body_inds[i][k]
             M_r = Vec3(I[b_i][0],I[b_i][1],I[b_i][2])
             M_p = I[b_i][3]
             # wp.printf("c_fk: %f %f %f\n", cf[k][0], cf[k][1], cf[k][2])
@@ -541,13 +579,12 @@ def initConstraintsMuscle(
             # wp.printf("n_l: %f %f %f\n", n_l[0], n_l[1], n_l[2])
             rxn_l = wp.cross(xls[i][k], n_l)
             # wp.printf("rxn_l: %f %f %f\n", rxn_l[0], rxn_l[1], rxn_l[2])
-            w[i][j] += wp.dot(rxn_l, wp.cw_div(rxn_l, M_r))  + 1.0 / M_p
+            w[i][j] += wp.dot(rxn_l, wp.cw_div(rxn_l, M_r))  + 1.0 / M_p * wp.dot(normals[k], normals[k])
+            # wp.printf("w[k]: %f\n", wp.dot(rxn_l, wp.cw_div(rxn_l, M_r))  + 1.0 / M_p * wp.dot(normals[k], normals[k]))
             rxn = wp.transform_vector(q[b_i][j], rxn_l)
             Js[i][j][k] = Vec6(rxn[0], rxn[1], rxn[2], normals[k][0], normals[k][1], normals[k][2])
             rxnI = wp.transform_vector(q[b_i][j], wp.cw_div(rxn_l, M_r))
             J_div_ms[i][j][k] = Vec6(rxnI[0], rxnI[1], rxnI[2], normals[k][0] / M_p, normals[k][1] / M_p, normals[k][2] / M_p)
-            
-        b[i][j] = b[i][j] / h
 
 @wp.kernel
 def solveConstraintsMuscle(
@@ -756,6 +793,7 @@ class ConstraintsJoint(ConstraintsOnDevice):
         b2 = np.empty(shape=self.con_count, dtype=Vec3)
         kp = np.zeros(shape=self.con_count, dtype=FP_DATA_TYPE)
         kd = np.zeros(shape=self.con_count, dtype=FP_DATA_TYPE)
+        limits = np.empty(shape=self.con_count, dtype=Vec2)
         ci = 0
         
         for i in range(len(joints)):
@@ -777,6 +815,7 @@ class ConstraintsJoint(ConstraintsOnDevice):
                 axis2[ci] = joints[i].axis2
                 b1[ci] = joints[i].b1
                 b2[ci] = joints[i].b2
+                limits[ci] = joints[i].limits
                 if(joints[i].has_target):
                     constraint_type[ci] = WORLD_ROTATE_TARGET_CONSTRAINT
                     kp[ci] = joints[i].kp
@@ -804,6 +843,7 @@ class ConstraintsJoint(ConstraintsOnDevice):
                 axis2[ci] = joints[i].axis2
                 b1[ci] = joints[i].b1
                 b2[ci] = joints[i].b2
+                limits[ci] = joints[i].limits
                 if(joints[i].has_target):
                     constraint_type[ci] = BODY_ROTATE_TARGET_CONSTRAINT
                     kp[ci] = joints[i].kp
@@ -824,8 +864,10 @@ class ConstraintsJoint(ConstraintsOnDevice):
         self.con_type = wp.array(constraint_type, dtype=INT_DATA_TYPE)
         self.kp = wp.array(kp, dtype=FP_DATA_TYPE)
         self.kd = wp.array(kd, dtype=FP_DATA_TYPE)
+        self.limits = wp.array(limits, dtype=Vec2)
         self.theta_target = wp.empty(shape=self.con_count, dtype=FP_DATA_TYPE)
         self.omega_target = wp.empty(shape=self.con_count, dtype=FP_DATA_TYPE)
+        self.limit_signs = wp.zeros(shape=self.con_count, dtype=FP_DATA_TYPE)
         
         self.c = wp.empty(shape=(self.con_count, SIM_NUM), dtype=Vec3)
         self.lambdas = wp.empty(shape=(self.con_count, SIM_NUM), dtype=Vec3)
@@ -871,6 +913,8 @@ class ConstraintsJoint(ConstraintsOnDevice):
                 self.omega_target,
                 self.kp,
                 self.kd,
+                self.limits,
+                self.limit_signs,
                 h,
             ],
             outputs=[
@@ -912,6 +956,7 @@ class ConstraintsJoint(ConstraintsOnDevice):
                 self.J_div_m2,
                 self.w2,
                 self.d,
+                self.limit_signs,
                 h
             ],
             outputs=[
@@ -941,6 +986,7 @@ class ConstraintsJoint(ConstraintsOnDevice):
                 self.J_div_m2,
                 self.w2,
                 self.d,
+                self.limit_signs,
                 h
             ],
             outputs=[
@@ -1017,9 +1063,10 @@ class ConstraintMuscle(ConstraintsOnDevice):
             ],
             record_tape=False,
         )
-        # print("J1: ",self.Js.numpy())
+        # print("Js: ",self.Js.numpy())
         # print("J_div_ms: ",self.J_div_ms.numpy())
-        # print("ws: ",self.ws.numpy())
+        # print("w: ",self.w.numpy())
+        # print("b: ",self.b.numpy())
         # print("J2: ",self.J2.numpy())
         # print("J_div_m2: ",self.J_div_m2.numpy())
         # print("w2: ",self.w2.numpy())

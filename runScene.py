@@ -50,9 +50,9 @@ def runScene(sceneId):
             model.setBodyInitialState(body2, Transform(Vec3(12.0, 0.0, 15.0), Quat(0.0, 0.0, 0.0, 1.0)), Vec6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
             body3 = model.addBody(box_shape, 1.0)
             model.setBodyInitialState(body3, Transform(Vec3(18.0, 0.0, 15.0), Quat(0.0, 0.0, 0.0, 1.0)), Vec6(0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
-            joint1 = model.addJoint(None, body1, Vec3(3.0, 0.0, 15.0), Vec3(0.0, 1.0, 0.0))
-            joint2 = model.addJoint(body1, body2, Vec3(3.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0))
-            joint3 = model.addJoint(body2, body3, Vec3(3.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0))
+            joint1 = model.addJoint(None, body1, Vec3(3.0, 0.0, 15.0), Vec3(0.0, 1.0, 0.0), Vec2(wp.PI/4, -wp.PI/4))
+            joint2 = model.addJoint(body1, body2, Vec3(3.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec2(wp.PI/4, -wp.PI/4))
+            joint3 = model.addJoint(body2, body3, Vec3(3.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec2(wp.PI/4, -wp.PI/4))
             bodies = [body1, body2, body3]
             points = [Vec3(0.0, 0.0, 0.0), Vec3(0.0, 0.0, -0.5), Vec3(0.0, 0.0, -0.5), Vec3(2.0, 0.0, -0.5), Vec3(0.0, 0.0, 0.0)]
             model.addMuscle(bodies, points, 5000.0, 12.0)
